@@ -1,4 +1,8 @@
 ﻿using APICatalago.DTOs;
+using APICatalago.Models;
+using AutoMapper;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.IdentityModel.Tokens;
@@ -12,22 +16,50 @@ namespace APICatalago.Controllers;
 [ApiController]
 public class AutorizaController : ControllerBase
 {
-    private readonly UserManager<IdentityUser> _userManager;
-    private readonly SignInManager<IdentityUser> _signInManager;
+    private readonly UserManager<ApplicationUser> _userManager;
+    private readonly SignInManager<ApplicationUser> _signInManager;
     private readonly IConfiguration _configuration;
+    private IPasswordHasher<ApplicationUser> _passwordHasher;
+    private readonly IMapper _mapper;
 
-    public AutorizaController(UserManager<IdentityUser> userManager, SignInManager<IdentityUser> signInManager, IConfiguration configuration)
+    public AutorizaController(IMapper mapper, UserManager<ApplicationUser> userManager, SignInManager<ApplicationUser> signInManager, IConfiguration configuration, IPasswordHasher<ApplicationUser> passwordHasher)
     {
         _userManager = userManager;
         _signInManager = signInManager;
         _configuration = configuration;
+        _passwordHasher = passwordHasher;
+        _mapper = mapper;
     }
 
-    [HttpGet]
-    public ActionResult<string> Get()
+    [Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    [HttpGet("{id:int:min(1)}")]
+    public async Task<ActionResult<UsuarioDTO>> Get(int id)
     {
-        return "AutorizaController :: Acessado em : "
-            + DateTime.Now.ToLongTimeString();
+        var userupdate = await _userManager.FindByIdAsync(id.ToString());
+        if (userupdate != null)
+        {
+            var UsuarioDto = _mapper.Map<UsuarioDTO>(userupdate);
+            return Ok(UsuarioDto);
+        }else
+        {
+            return BadRequest("não foi possivel trazer os usuarios");
+        }    
+    }
+
+    //[Authorize(AuthenticationSchemes = JwtBearerDefaults.AuthenticationScheme)]
+    [HttpGet("allUsers/{ministerioId:int:min(1)}")]
+    public async Task<ActionResult<IEnumerable<UsuarioDTO>>> GetAllUsuarios(int ministerioId)
+    {
+        var Usuarios =  _userManager.Users;
+        var UsuariosDto = _mapper.Map<List<UsuarioDTO>>(Usuarios);
+        if (UsuariosDto != null)
+        {
+            return Ok(UsuariosDto);
+        }
+        else
+        {
+            return BadRequest("não foi possivel trazer os usuarios");
+        }
     }
 
     [HttpPost("register")]
@@ -37,14 +69,16 @@ public class AutorizaController : ControllerBase
         {
             return BadRequest(ModelState.Values.SelectMany(e => e.Errors));
         }
-        var user = new IdentityUser
+        var user = new ApplicationUser
         {
-            UserName = model.Email,
+            UserName = model.UserName,
             Email = model.Email,
+            MinisterioId = model.MinisterioId,
+            IgrejaId = model.IgrejaId,
             EmailConfirmed = true
         };
         var result = await _userManager.CreateAsync(user, model.Password);
-
+        
         if (!result.Succeeded)
         {
             return BadRequest(result.Errors);
@@ -52,6 +86,40 @@ public class AutorizaController : ControllerBase
 
         await _signInManager.SignInAsync(user, false);
         return Ok(GeraToken(model));
+    }
+    [HttpPost("{id:int:min(1)}")]
+    public async Task<ActionResult<UsuarioDTO>> UpdateUser(int id, [FromBody] UsuarioDTO user)
+    {
+        var userupdate = await _userManager.FindByIdAsync(id.ToString());
+        if (userupdate != null)
+        {
+
+            if (!string.IsNullOrEmpty(user.Email))
+                userupdate.Email = user.Email;
+
+            if (!string.IsNullOrEmpty(user.UserName))
+                userupdate.UserName = user.UserName;
+
+            if (!string.IsNullOrEmpty(user.NormalizedUserName))
+                userupdate.NormalizedUserName = user.NormalizedUserName;
+
+            if (!string.IsNullOrEmpty(user.PhoneNumber))
+                userupdate.PhoneNumber = user.PhoneNumber;
+
+            if (!string.IsNullOrEmpty(user.Password))
+                userupdate.PasswordHash = _passwordHasher.HashPassword(userupdate, user.Password);
+
+            if (!string.IsNullOrEmpty(userupdate.Email) && !string.IsNullOrEmpty(userupdate.PasswordHash))
+            {
+                IdentityResult result = await _userManager.UpdateAsync(userupdate);
+            }
+        }
+        else
+        {
+            return NotFound("Membro não encontrado ..."); 
+        }
+
+        return Ok(userupdate);
     }
 
     [HttpPost("Login")]  
@@ -78,7 +146,7 @@ public class AutorizaController : ControllerBase
         }
     }
 
-    [HttpPut("Login")]
+    [HttpPut("Logout")]
     public async Task<ActionResult> Logout()
     {
         await _signInManager.SignOutAsync();

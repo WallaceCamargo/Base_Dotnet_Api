@@ -8,5 +8,6 @@ public class MappingProfile : Profile
     public MappingProfile() { 
         CreateMap<Igreja, IgrejaDTO>().ReverseMap();
         CreateMap<Ministerio, MinisterioDTO>().ReverseMap();
+        CreateMap<ApplicationUser, UsuarioDTO>().ReverseMap();
     }
 }
